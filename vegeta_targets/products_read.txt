@@ -1,0 +1,16 @@
+GET http://localhost:8000/api/products?sort=recent
+
+GET http://localhost:8000/api/products?sort=price_asc
+
+GET http://localhost:8000/api/products?sort=price_desc
+
+GET http://localhost:8000/api/products?min_price=50&max_price=200
+
+GET http://localhost:8000/api/products?per_page=50
+
+GET http://localhost:8000/api/products?page=2
+
+GET http://localhost:8000/api/products?search=product
+
+GET http://localhost:8000/api/products
+
