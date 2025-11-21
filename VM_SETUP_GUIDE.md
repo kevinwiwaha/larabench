@@ -87,6 +87,9 @@ Total RAM: 2048 MB
 ├── Cloudflare Tunnel: 20-40 MB (idle)
 ├── System/OS: 200-300 MB
 └── Buffer: 100-150 MB
+
+Swap: 2048 MB (2GB)
+└── Used during load testing to prevent OOM kills
 ```
 
 **VM C** (Monitoring):
@@ -109,7 +112,79 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install -y curl wget git unzip software-properties-common
 ```
 
-### Step 2: Install PHP 8.2
+### Step 2: Configure Swap (Critical for Load Testing)
+
+Swap is essential for load testing on 2GB RAM VMs to prevent OOM (Out of Memory) kills during peak load.
+
+```bash
+# Check current swap status
+free -h
+swapon --show
+
+# Create 2GB swap file (1:1 ratio with RAM for load testing)
+sudo fallocate -l 2G /swapfile
+
+# Set correct permissions (only root can read/write)
+sudo chmod 600 /swapfile
+
+# Format as swap
+sudo mkswap /swapfile
+
+# Enable swap
+sudo swapon /swapfile
+
+# Verify swap is active
+free -h
+swapon --show
+
+# Make swap permanent (survive reboots)
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# Optimize swap settings for load testing
+sudo nano /etc/sysctl.conf
+```
+
+Add these swap optimizations to `/etc/sysctl.conf`:
+
+```conf
+# Swap optimization for load testing (2GB RAM VM)
+# Lower swappiness = prefer RAM, use swap only when necessary
+# For load testing: 10-20 is optimal (default is 60)
+vm.swappiness = 10
+
+# Reduce swap cache pressure (keep more in memory)
+vm.vfs_cache_pressure = 50
+
+# Memory management
+vm.dirty_ratio = 15
+vm.dirty_background_ratio = 5
+```
+
+Apply the changes:
+
+```bash
+# Apply sysctl changes
+sudo sysctl -p
+
+# Verify swap settings
+cat /proc/sys/vm/swappiness
+# Should show: 10
+
+# Verify swap is working
+free -h
+# Should show swap with ~2GB total
+```
+
+**Expected output**:
+```
+              total        used        free      shared  buff/cache   available
+Mem:           2.0Gi       200Mi       1.2Gi        10Mi       600Mi       1.7Gi
+Swap:          2.0Gi          0B       2.0Gi
+```
+
+> ⚠️ **Important**: Swap is slower than RAM, but prevents OOM kills during load testing. With `swappiness=10`, the system will prefer RAM and only use swap when memory pressure is high.
+
+### Step 3: Install PHP 8.2
 
 ```bash
 # Add PHP repository
@@ -137,7 +212,7 @@ php -v
 # Should show: PHP 8.2.x
 ```
 
-### Step 3: Install Composer
+### Step 4: Install Composer
 
 ```bash
 # Download and install Composer
@@ -149,7 +224,7 @@ sudo chmod +x /usr/local/bin/composer
 composer --version
 ```
 
-### Step 4: Install PostgreSQL 15
+### Step 5: Install PostgreSQL 15
 
 ```bash
 # Install PostgreSQL
@@ -167,7 +242,7 @@ psql --version
 # Should show: psql (PostgreSQL) 15.x
 ```
 
-### Step 5: Configure PostgreSQL
+### Step 6: Configure PostgreSQL
 
 ```bash
 # Switch to postgres user
@@ -226,7 +301,7 @@ Restart PostgreSQL:
 sudo systemctl restart postgresql
 ```
 
-### Step 6: Allow Remote Connections (if needed)
+### Step 7: Allow Remote Connections (if needed)
 
 ```bash
 # Edit postgresql.conf
@@ -245,7 +320,7 @@ host    all             all             192.168.1.0/24          md5
 sudo systemctl restart postgresql
 ```
 
-### Step 7: Clone and Setup Laravel
+### Step 8: Clone and Setup Laravel
 
 ```bash
 # Create application directory
@@ -305,7 +380,7 @@ php artisan config:cache
 php artisan route:cache
 ```
 
-### Step 9: Run Migrations
+### Step 10: Run Migrations
 
 ```bash
 cd /var/www/larabench
@@ -328,7 +403,7 @@ Products: 2000
 Orders: 1000
 ```
 
-### Step 10: Setup Nginx
+### Step 11: Setup Nginx
 
 ```bash
 # Install Nginx
@@ -591,24 +666,24 @@ curl http://192.168.1.10
 curl http://192.168.1.10/api/products
 ```
 
-### Step 11: Install Node Exporter (Monitoring)
+### Step 12: Install Node Exporter (Monitoring)
 
 Node Exporter exposes system metrics for Prometheus.
 
 ```bash
 # Download Node Exporter (check for latest version)
 cd /tmp
-wget https://github.com/prometheus/node_exporter/releases/download/v1.7.0/node_exporter-1.7.0.linux-amd64.tar.gz
+wget https://github.com/prometheus/node_exporter/releases/download/v1.10.2/node_exporter-1.10.2.linux-amd64.tar.gz
 
 # Extract
-tar xvfz node_exporter-1.7.0.linux-amd64.tar.gz
+tar xvfz node_exporter-1.10.2.linux-amd64.tar.gz
 
 # Move binary
-sudo mv node_exporter-1.7.0.linux-amd64/node_exporter /usr/local/bin/
+sudo mv node_exporter-1.10.2.linux-amd64/node_exporter /usr/local/bin/
 sudo chmod +x /usr/local/bin/node_exporter
 
 # Clean up
-rm -rf node_exporter-1.7.0.linux-amd64*
+rm -rf node_exporter-1.10.2.linux-amd64*
 
 # Create user for node_exporter
 sudo useradd --no-create-home --shell /bin/false node_exporter
@@ -671,7 +746,7 @@ Allow Prometheus to access Node Exporter:
 sudo ufw allow from 192.168.1.12 to any port 9100
 ```
 
-### Step 12: Install Cloudflare Tunnel (Idle)
+### Step 13: Install Cloudflare Tunnel (Idle)
 
 Cloudflare Tunnel will be installed but kept idle for resource estimation.
 
@@ -726,7 +801,7 @@ sudo systemctl enable cloudflared-idle.service
 
 > 📝 **Note**: Cloudflare Tunnel is installed but not configured. When idle, it uses minimal resources (~20-30MB RAM). For actual tunnel setup, see Cloudflare documentation.
 
-### Step 13: Optimize PHP-FPM (for 2GB RAM)
+### Step 14: Optimize PHP-FPM (for 2GB RAM)
 
 ```bash
 # Edit PHP-FPM pool configuration
@@ -750,9 +825,9 @@ listen.mode = 0660
 # 1100MB / 30MB = ~36 max children, use 25 for safety
 pm = dynamic
 pm.max_children = 25              # Reduced for 2GB RAM + monitoring
-pm.start_servers = 4              # Number of CPU cores / 2
+pm.start_servers = 2              # Number of CPU cores / 2
 pm.min_spare_servers = 2
-pm.max_spare_servers = 8
+pm.max_spare_servers = 4
 pm.max_requests = 500             # Recycle workers to prevent memory leaks
 
 # Process priority
@@ -822,12 +897,15 @@ sudo systemctl restart php8.2-fpm
 
 # Check PHP-FPM status
 sudo systemctl status php8.2-fpm
-
+# Create the log file with proper permissions
+sudo touch /var/log/php8.2-fpm.log
+sudo chown www-data:www-data /var/log/php8.2-fpm.log
+sudo chmod 644 /var/log/php8.2-fpm.log
 # Verify configuration
 php-fpm8.2 -t
 ```
 
-### Step 14: Firewall Configuration
+### Step 15: Firewall Configuration
 
 ```bash
 # Allow HTTP and SSH
@@ -849,32 +927,75 @@ sudo ufw status verbose
 
 ## 🖥️ Setup VM B: MariaDB
 
-### Step 1-3: Same as VM A
+### Step 1-2: Same as VM A
 
-Follow Steps 1-3 from VM A (Update System, Install PHP, Install Composer)
+Follow Steps 1-2 from VM A (Update System, Configure Swap)
 
-### Step 4: Install MariaDB 10.11
+### Step 3: Install PHP 8.2
+
+Follow Step 3 from VM A (Install PHP 8.2)
+
+### Step 4: Install Composer
+
+Follow Step 4 from VM A (Install Composer)
+
+### Step 5: Install MariaDB 10.11
 
 ```bash
 # SSH into VM B
 ssh user@192.168.1.11
 
-# Install MariaDB
+# Detect Ubuntu version
+UBUNTU_VERSION=$(lsb_release -cs)
+echo "Detected Ubuntu version: $UBUNTU_VERSION"
+
+# Install required dependencies first
+sudo apt update
+sudo apt install -y software-properties-common dirmngr apt-transport-https
+
+# Install libaio (package name varies by Ubuntu version)
+# Ubuntu 22.04 (jammy): libaio1
+# Ubuntu 24.04 (noble): libaio1t64 or libaio1 (check available)
+if apt-cache search libaio1 | grep -q "^libaio1 "; then
+    sudo apt install -y libaio1
+elif apt-cache search libaio1t64 | grep -q "^libaio1t64 "; then
+    sudo apt install -y libaio1t64
+else
+    # Try installing libaio-dev which may pull in the runtime library
+    sudo apt install -y libaio-dev || true
+fi
+
+# Add MariaDB repository (ensures we get MariaDB 10.11)
+# Import MariaDB GPG key
+sudo curl -o /etc/apt/trusted.gpg.d/mariadb_release_signing_key.asc 'https://mariadb.org/mariadb_release_signing_key.asc'
+
+# Add MariaDB 10.11 repository (use detected Ubuntu version)
+sudo sh -c "echo 'deb https://mirror.23m.com/mariadb/repo/10.11/ubuntu $UBUNTU_VERSION main' > /etc/apt/sources.list.d/mariadb.list"
+
+# Update package list
+sudo apt update
+
+# Install MariaDB 10.11
 sudo apt install -y mariadb-server mariadb-client
 
 # Start and enable MariaDB
 sudo systemctl start mariadb
 sudo systemctl enable mariadb
 
-# Verify
+# Verify installation
 sudo systemctl status mariadb
 
-# Check version
+# Check version (should show 10.11.x)
 mysql --version
-# Should show: mysql Ver 15.1 Distrib 10.11.x-MariaDB
+
+# Expected output: mysql  Ver 15.1 Distrib 10.11.x-MariaDB, for debian-linux-gnu (x86_64)
 ```
 
-### Step 5: Configure MariaDB
+> 💡 **Note**: Using the official MariaDB repository ensures you get MariaDB 10.11 instead of older versions from Ubuntu's default repos.
+
+> ⚠️ **Ubuntu Version Detection**: The script automatically detects your Ubuntu version (jammy/noble) and uses the correct repository.
+
+### Step 6: Configure MariaDB
 
 ```bash
 # Secure installation
@@ -885,23 +1006,41 @@ sudo mysql_secure_installation
 # Remove test database: Y
 # Reload privilege tables: Y
 
-# Login to MariaDB
-sudo mysql -u root -p
+# Login to MariaDB (use sudo, no password needed initially)
+sudo mysql -u root
 
 # Inside MariaDB prompt:
+-- Enable password authentication for root (MariaDB 10.11+ uses unix_socket by default)
+ALTER USER 'root'@'localhost' IDENTIFIED BY 'your_secure_password';
+FLUSH PRIVILEGES;
+
 -- Create database
 CREATE DATABASE larabench CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- Create user (optional)
+-- Create Laravel user with password authentication
 CREATE USER 'laravel'@'localhost' IDENTIFIED BY 'your_secure_password';
+
+-- Grant privileges
 GRANT ALL PRIVILEGES ON larabench.* TO 'laravel'@'localhost';
 FLUSH PRIVILEGES;
 
+-- Verify user was created correctly
+SELECT User, Host, plugin FROM mysql.user WHERE User='laravel';
+-- Should show: laravel | localhost | mysql_native_password
+
 -- Exit
 EXIT;
+
+# Test root connection with password
+mysql -u root -p -e "SELECT 1;"
+# Enter password when prompted
+
+# Test laravel user connection
+mysql -u laravel -p larabench -e "SELECT 1;"
+# Enter password when prompted
 ```
 
-### Step 6: Optimize MariaDB Configuration
+### Step 7: Optimize MariaDB Configuration
 
 ```bash
 # Edit MariaDB configuration
@@ -967,7 +1106,7 @@ Restart MariaDB:
 sudo systemctl restart mariadb
 ```
 
-### Step 7: Allow Remote Connections (if needed)
+### Step 8: Allow Remote Connections (if needed)
 
 ```bash
 # Edit bind-address
@@ -987,9 +1126,9 @@ FLUSH PRIVILEGES;
 EXIT;
 ```
 
-### Step 8: Configure Environment
+### Step 9: Configure Environment
 
-Follow Step 8 from VM A (PostgreSQL section), but use these environment settings:
+Follow Step 9 from VM A (PostgreSQL section), but use these environment settings:
 
 ```bash
 # .env file for MariaDB
@@ -1016,15 +1155,15 @@ QUEUE_CONNECTION=database
 EOF
 ```
 
-### Step 9-14: Same as VM A
+### Step 10-15: Same as VM A
 
-Follow Steps 9-14 from VM A:
-- Step 9: Run Migrations
-- Step 10: Setup Nginx (update IP to 192.168.1.11 in config)
-- Step 11: Install Node Exporter
-- Step 12: Install Cloudflare Tunnel (idle)
-- Step 13: Optimize PHP-FPM
-- Step 14: Firewall Configuration
+Follow Steps 10-15 from VM A:
+- Step 10: Run Migrations
+- Step 11: Setup Nginx (update IP to 192.168.1.11 in config)
+- Step 12: Install Node Exporter
+- Step 13: Install Cloudflare Tunnel (idle)
+- Step 14: Optimize PHP-FPM
+- Step 15: Firewall Configuration
 
 ---
 
@@ -1150,6 +1289,7 @@ curl -X POST http://192.168.1.11/api/orders \
 - [ ] Node Exporter running (port 9100)
 - [ ] Cloudflare Tunnel installed (idle)
 - [ ] Firewall configured
+- [ ] Swap configured (2GB)
 - [ ] Performance tuning applied
 
 ---
@@ -1231,6 +1371,8 @@ SHOW INDEX FROM orders;"
 
 ### System-Level Tuning (for 2GB RAM)
 
+> 📝 **Note**: Swap configuration is already done in Step 2. This section covers additional optimizations.
+
 ```bash
 # Increase open file limits
 sudo nano /etc/security/limits.conf
@@ -1239,10 +1381,10 @@ sudo nano /etc/security/limits.conf
 * soft nofile 10000
 * hard nofile 10000
 
-# Edit sysctl for network and memory tuning
+# Edit sysctl for network tuning (swap already configured in Step 2)
 sudo nano /etc/sysctl.conf
 
-# Add these optimizations:
+# Add these network optimizations (swap settings already added in Step 2):
 # Network optimization
 net.core.somaxconn = 1024
 net.ipv4.tcp_max_syn_backlog = 2048
@@ -1250,26 +1392,29 @@ net.ipv4.ip_local_port_range = 10000 65535
 net.ipv4.tcp_tw_reuse = 1
 net.ipv4.tcp_fin_timeout = 15
 
-# Memory optimization (conservative for 2GB)
-vm.swappiness = 10
-vm.dirty_ratio = 15
-vm.dirty_background_ratio = 5
-
 # Apply changes
 sudo sysctl -p
 
 # Verify
 ulimit -n
+cat /proc/sys/vm/swappiness  # Should show: 10
 ```
 
-### Monitor Memory Usage
+### Monitor Memory and Swap Usage
 
 ```bash
-# Check current memory usage
+# Check current memory and swap usage
 free -h
 
-# Monitor during benchmark
+# Monitor during benchmark (shows RAM + Swap)
 watch -n 1 free -h
+
+# Detailed memory breakdown
+cat /proc/meminfo | grep -E "MemTotal|MemFree|MemAvailable|SwapTotal|SwapFree"
+
+# Check swap usage
+swapon --show
+cat /proc/swaps
 
 # Check per-process memory
 ps aux --sort=-%mem | head -15
@@ -1281,6 +1426,11 @@ echo -n "PHP-FPM: "; ps aux | grep php-fpm | awk '{sum+=$6} END {print sum/1024 
 echo -n "Nginx: "; ps aux | grep nginx | awk '{sum+=$6} END {print sum/1024 " MB"}'
 echo -n "Node Exporter: "; ps aux | grep node_exporter | awk '{sum+=$6} END {print sum/1024 " MB"}'
 echo -n "Cloudflared: "; ps aux | grep cloudflared | awk '{sum+=$6} END {print sum/1024 " MB"}'
+echo ""
+echo "=== Swap Status ==="
+echo -n "Swap Total: "; free -h | grep Swap | awk '{print $2}'
+echo -n "Swap Used: "; free -h | grep Swap | awk '{print $3}'
+echo -n "Swap Free: "; free -h | grep Swap | awk '{print $4}'
 ```
 
 ---
@@ -1337,6 +1487,125 @@ echo "3. Run: php artisan migrate:fresh --seed"
 
 ## 📋 Troubleshooting
 
+### Issue: MariaDB installation fails with "libaio1 not installable"
+
+This usually happens when:
+1. Ubuntu version mismatch (e.g., using jammy repo on noble)
+2. Package name changed in newer Ubuntu versions
+
+**Fix for Ubuntu 24.04 (Noble)**:
+
+```bash
+# Check your Ubuntu version
+lsb_release -cs
+
+# For Ubuntu 24.04 (noble), libaio1 might be replaced
+# Try installing libaio1t64 (transitional package) or libaio-dev
+sudo apt update
+sudo apt install -y libaio1t64 || sudo apt install -y libaio-dev
+
+# Fix MariaDB repository to match your Ubuntu version
+UBUNTU_VERSION=$(lsb_release -cs)
+sudo rm /etc/apt/sources.list.d/mariadb.list
+sudo sh -c "echo 'deb https://mirror.23m.com/mariadb/repo/10.11/ubuntu $UBUNTU_VERSION main' > /etc/apt/sources.list.d/mariadb.list"
+
+# Update and retry
+sudo apt update
+sudo apt install -y mariadb-server mariadb-client
+```
+
+**Alternative: Use Ubuntu's default MariaDB** (if official repo still fails):
+
+```bash
+# Remove MariaDB repository
+sudo rm /etc/apt/sources.list.d/mariadb.list
+
+# Update and install from Ubuntu repos
+sudo apt update
+sudo apt install -y mariadb-server mariadb-client
+
+# Verify version (Ubuntu 24.04 usually has MariaDB 10.11)
+mysql --version
+```
+
+**If libaio package is completely missing**:
+
+```bash
+# Try installing from Debian packages (compatible with Ubuntu)
+cd /tmp
+wget http://archive.ubuntu.com/ubuntu/pool/main/liba/libaio/libaio1_0.3.113-5build1_amd64.deb
+sudo dpkg -i libaio1_0.3.113-5build1_amd64.deb || sudo apt install -f -y
+
+# Then retry MariaDB installation
+sudo apt install -y mariadb-server mariadb-client
+```
+
+### Issue: MariaDB "Access denied for user 'root'@'localhost'"
+
+MariaDB 10.11+ uses `unix_socket` authentication for root by default, which doesn't work with password authentication.
+
+**Solution 1: Enable password authentication for root** (Recommended):
+
+```bash
+# Login to MariaDB as root (no password needed when using sudo)
+sudo mysql -u root
+
+# Inside MariaDB, run these commands:
+ALTER USER 'root'@'localhost' IDENTIFIED BY 'your_secure_password';
+FLUSH PRIVILEGES;
+EXIT;
+
+# Now test connection with password
+mysql -u root -p -e "SELECT 1;"
+# Enter password when prompted
+```
+
+**Solution 2: Use the laravel user** (if you created one):
+
+```bash
+# Update .env file to use laravel user instead of root
+# DB_USERNAME=laravel
+# DB_PASSWORD=your_secure_password
+
+# Then test
+php artisan migrate
+```
+
+**Solution 3: Create/fix the laravel user** (if access denied for laravel user):
+
+```bash
+# Login to MariaDB
+sudo mysql -u root
+
+# Drop existing laravel user if it exists (to recreate it properly)
+DROP USER IF EXISTS 'laravel'@'localhost';
+
+# Create user with password authentication
+CREATE USER 'laravel'@'localhost' IDENTIFIED BY 'your_secure_password';
+
+# Grant privileges
+GRANT ALL PRIVILEGES ON larabench.* TO 'laravel'@'localhost';
+
+# Flush privileges
+FLUSH PRIVILEGES;
+
+# Verify user was created
+SELECT User, Host, plugin FROM mysql.user WHERE User='laravel';
+# Should show: laravel | localhost | mysql_native_password
+
+EXIT;
+
+# Test connection
+mysql -u laravel -p larabench -e "SELECT 1;"
+# Enter password when prompted
+
+# Update .env file
+nano /var/www/larabench/.env
+# Make sure these match:
+# DB_USERNAME=laravel
+# DB_PASSWORD=your_secure_password
+```
+
 ### Issue: Can't connect to database
 
 ```bash
@@ -1349,12 +1618,23 @@ sudo systemctl status mariadb
 mysql -u root -p -e "SELECT 1;"
 ```
 
-### Issue: Permission denied errors
+### Issue: Permission denied errors (Storage/Logs)
 
 ```bash
-# Fix storage permissions
+# Fix storage and bootstrap/cache permissions
 sudo chown -R www-data:www-data /var/www/larabench/storage
+sudo chown -R www-data:www-data /var/www/larabench/bootstrap/cache
 sudo chmod -R 775 /var/www/larabench/storage
+sudo chmod -R 775 /var/www/larabench/bootstrap/cache
+
+# If logs directory doesn't exist, create it
+sudo mkdir -p /var/www/larabench/storage/logs
+sudo chown -R www-data:www-data /var/www/larabench/storage/logs
+sudo chmod -R 775 /var/www/larabench/storage/logs
+
+# Verify permissions
+ls -la /var/www/larabench/storage/logs
+# Should show www-data:www-data ownership
 ```
 
 ### Issue: Slow seeding
@@ -1400,6 +1680,14 @@ sudo systemctl restart php8.2-fpm
 # Check what's using memory
 sudo ps aux --sort=-%mem | head -20
 
+# Check swap usage (if swap is heavily used, consider reducing services)
+free -h
+swapon --show
+
+# If swap is being used heavily during load testing:
+# This is normal! Swap prevents OOM kills.
+# Monitor swap I/O: iostat -x 1
+
 # If PostgreSQL is using too much:
 # Edit postgresql.conf and reduce shared_buffers to 384MB
 
@@ -1408,6 +1696,29 @@ sudo ps aux --sort=-%mem | head -20
 
 # If PHP-FPM is spawning too many processes:
 # Edit www.conf and reduce pm.max_children to 20
+
+# If OOM kills still occur:
+# Increase swap size: sudo fallocate -l 4G /swapfile2 && sudo mkswap /swapfile2 && sudo swapon /swapfile2
+```
+
+### Issue: Swap not working
+
+```bash
+# Check if swap is enabled
+swapon --show
+
+# If empty, check swap file exists
+ls -lh /swapfile
+
+# Re-enable swap if needed
+sudo swapon /swapfile
+
+# Check fstab entry
+cat /etc/fstab | grep swap
+
+# Verify swap is mounted on boot
+sudo reboot
+# After reboot: swapon --show
 ```
 
 ---
@@ -1517,6 +1828,9 @@ System/OS              | 200-300 MB   | 10-15%
 -------------------------------------------------
 TOTAL USED             | ~1400-2000MB | 70-98%
 FREE/BUFFER            | 50-650 MB    | 2-30%
+
+Swap                   | 2048 MB      | 100% of RAM
+└── Used during load testing to prevent OOM kills
 ```
 
 ### Port Usage
@@ -1559,6 +1873,10 @@ echo -n "Node Exporter (9100): "; nc -z localhost 9100 && echo "OK" || echo "FAI
 echo ""
 echo "=== Memory Usage ==="
 free -h | grep Mem
+echo ""
+echo "=== Swap Status ==="
+swapon --show
+free -h | grep Swap
 EOF
 
 chmod +x /tmp/check_services.sh

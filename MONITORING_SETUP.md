@@ -64,11 +64,11 @@ sudo mkdir -p /var/lib/prometheus
 
 # Download Prometheus (check for latest version)
 cd /tmp
-wget https://github.com/prometheus/prometheus/releases/download/v2.48.0/prometheus-2.48.0.linux-amd64.tar.gz
+wget https://github.com/prometheus/prometheus/releases/download/v3.7.3/prometheus-3.7.3.linux-amd64.tar.gz
 
 # Extract
-tar xvfz prometheus-2.48.0.linux-amd64.tar.gz
-cd prometheus-2.48.0.linux-amd64
+tar xvfz prometheus-3.7.3.linux-amd64.tar.gz
+cd prometheus-3.7.3.linux-amd64
 
 # Move binaries
 sudo mv prometheus /usr/local/bin/
@@ -80,7 +80,7 @@ sudo mv console_libraries /etc/prometheus/
 
 # Clean up
 cd /tmp
-rm -rf prometheus-2.48.0.linux-amd64*
+rm -rf prometheus-3.7.3.linux-amd64*
 
 # Set ownership
 sudo chown -R prometheus:prometheus /etc/prometheus
@@ -317,14 +317,35 @@ sudo ufw status
 
 ### Import Dashboard
 
-#### Option 1: Use Pre-built Dashboard
+#### Option 1: Import Laravel Benchmark Dashboard (Recommended)
+
+A pre-configured dashboard for side-by-side comparison is available in the repository.
+
+1. Go to **Dashboards** → **Import**
+2. Click **Upload JSON file**
+3. Select `grafana-dashboard-laravel-benchmark.json` from your repository
+4. Select **Prometheus** as data source
+5. Click **Import**
+
+**Dashboard Features**:
+- ✅ Side-by-side comparison of PostgreSQL vs MariaDB
+- ✅ CPU usage and load average
+- ✅ RAM and Swap usage
+- ✅ Disk I/O (throughput and IOPS)
+- ✅ Network I/O (throughput and packets)
+- ✅ Auto-refresh every 10 seconds
+- ✅ Blue color for PostgreSQL, Orange for MariaDB
+
+#### Option 2: Use Pre-built Node Exporter Dashboard
 
 1. Go to **Dashboards** → **Import**
 2. Enter dashboard ID: `1860` (Node Exporter Full)
 3. Select **Prometheus** as data source
 4. Click **Import**
 
-#### Option 2: Create Custom Dashboard
+> **Note**: Dashboard 1860 is a general-purpose dashboard. Use Option 1 for benchmark-specific metrics.
+
+#### Option 3: Create Custom Dashboard
 
 Example queries for Laravel benchmark:
 
@@ -431,12 +452,83 @@ FREE/BUFFER        | 1000-1400MB  | 50-70%
 
 ---
 
+## 📊 Using the Dashboard During Benchmarks
+
+### Dashboard Layout
+
+The imported dashboard (`grafana-dashboard-laravel-benchmark.json`) has 8 panels organized as follows:
+
+```
+Row 1: CPU Metrics
+├─ CPU Usage (%)              [Left]  - Shows % utilization
+└─ System Load Average        [Right] - Shows 1m and 5m load
+
+Row 2: Memory Metrics
+├─ Memory Usage (RAM %)       [Left]  - Shows RAM consumption
+└─ Swap Usage (%)             [Right] - Shows swap usage
+
+Row 3: Disk I/O Metrics
+├─ Disk I/O Throughput        [Left]  - Shows read/write bytes/sec
+└─ Disk IOPS                  [Right] - Shows read/write operations/sec
+
+Row 4: Network Metrics
+├─ Network I/O Throughput     [Left]  - Shows receive/transmit bytes/sec
+└─ Network Packets            [Right] - Shows packets/sec
+```
+
+### Color Coding
+
+- **Blue**: PostgreSQL VM (192.168.1.10)
+- **Orange**: MariaDB VM (192.168.1.11)
+- **Light Blue**: PostgreSQL read/receive operations
+- **Light Orange**: MariaDB read/receive operations
+
+### During Load Testing
+
+1. **Before starting**: Note baseline metrics (CPU idle, memory usage)
+2. **During test**: Watch for:
+   - CPU spikes (which DB handles load better?)
+   - Memory growth (does swap get used?)
+   - Disk I/O patterns (which DB writes more?)
+   - Network throughput (API response patterns)
+3. **After test**: Compare recovery time (how fast do metrics return to baseline?)
+
+### Key Metrics to Compare
+
+| Metric | What to Look For | Better is... |
+|--------|------------------|--------------|
+| CPU Usage | Lower average during load | Lower |
+| Memory Usage | Stable, not growing | Lower/Stable |
+| Swap Usage | Should stay at 0% or low | Lower |
+| Disk Write | Which DB writes more for same operations | Lower (unless caching) |
+| Disk Read | Read patterns during benchmark | Depends on workload |
+| Network | Should be similar (same API traffic) | Similar |
+
+### Tips
+
+- Set time range to **Last 15 minutes** during short tests
+- Use **Last 1 hour** for longer benchmark sessions
+- Enable **Auto-refresh: 10s** to see real-time changes
+- Click on legend items to hide/show specific metrics
+- Use zoom (click and drag) to focus on specific time periods
+
+---
+
 ## 🎯 Next Steps
 
 1. ✅ Monitoring VM set up?
 2. 🔍 Verify targets are up in Prometheus
-3. 📈 Import Node Exporter dashboard in Grafana
+3. 📈 Import the Laravel Benchmark dashboard in Grafana
 4. 🚀 Ready to benchmark? Run load tests and watch metrics!
+
+---
+
+## 📁 Files Reference
+
+- **Dashboard JSON**: `grafana-dashboard-laravel-benchmark.json`
+- **Prometheus Config**: `/etc/prometheus/prometheus.yml`
+- **Grafana URL**: `http://192.168.1.12:3000`
+- **Prometheus URL**: `http://192.168.1.12:9090`
 
 ---
 
